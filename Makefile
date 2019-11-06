@@ -76,7 +76,8 @@ AS = $(TOOLPREFIX)gas
 LD = $(TOOLPREFIX)ld
 OBJCOPY = $(TOOLPREFIX)objcopy
 OBJDUMP = $(TOOLPREFIX)objdump
-CFLAGS = -fno-pic -static -fno-builtin -fno-strict-aliasing -O2 -Wall -MD -ggdb -m32 -Werror -fno-omit-frame-pointer
+CFLAGS = -fno-pic -static -fno-builtin -fno-strict-aliasing -O2 -Wall -MD -ggdb -m32 -Werror -fno-omit-frame-pointer 
+# -D $(SCHEDULER)
 CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 && echo -fno-stack-protector)
 ASFLAGS = -m32 -gdwarf-2 -Wa,-divide
 # FreeBSD ld wants ``elf_i386_fbsd''
@@ -89,7 +90,12 @@ endif
 ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]nopie'),)
 CFLAGS += -fno-pie -nopie
 endif
-
+ifdef SCHEDULER
+CFLAGS += -D $(SCHEDULER)
+endif
+ifndef SCHEDULER
+CFLAGS += -D ROUND
+endif
 xv6.img: bootblock kernel
 	dd if=/dev/zero of=xv6.img count=10000
 	dd if=bootblock of=xv6.img conv=notrunc
@@ -169,6 +175,7 @@ UPROGS=\
 	_cat\
 	_echo\
 	_testprogram\
+	_setpriority\
 	_forktest\
 	_grep\
 	_init\
@@ -220,8 +227,13 @@ QEMUGDB = $(shell if $(QEMU) -help | grep -q '^-gdb'; \
 ifndef CPUS
 CPUS := 2
 endif
+# ifndef SCHEDULER
+# SCHEDULER=DEFAULT
+# endif
 QEMUOPTS = -drive file=fs.img,index=1,media=disk,format=raw -drive file=xv6.img,index=0,media=disk,format=raw -smp $(CPUS) -m 512 $(QEMUEXTRA)
 
+flags:
+	@echo $(SCHEDULER)
 qemu: fs.img xv6.img
 	$(QEMU) -serial mon:stdio $(QEMUOPTS)
 
@@ -230,8 +242,13 @@ qemu-memfs: xv6memfs.img
 
 qemu-nox: fs.img xv6.img
 	$(QEMU) -nographic $(QEMUOPTS)
+	# rm -f *.tex *.dvi *.idx *.aux *.log *.ind *.ilg \
+	# *.o *.d *.asm *.sym vectors.S bootblock entryother \
+	# initcode initcode.out kernel xv6.img fs.img kernelmemfs \
+	# xv6memfs.img mkfs .gdbinit \
+	# $(UPROGS)
 
-.gdbinit: .gdbinit.tmpl
+.gdbinit: .gdbCPUSinit.tmpl
 	sed "s/localhost:1234/localhost:$(GDBPORT)/" < $^ > $@
 
 qemu-gdb: fs.img xv6.img .gdbinit
@@ -249,7 +266,7 @@ qemu-nox-gdb: fs.img xv6.img .gdbinit
 # check in that version.
 
 EXTRA=\
-	mkfs.c ulib.c user.h cat.c echo.c testprogram.c forktest.c grep.c kill.c\
+	mkfs.c ulib.c user.h cat.c echo.c testprogram.c setpriority.c forktest.c grep.c kill.c\
 	ln.c ls.c mkdir.c rm.c stressfs.c usertests.c wc.c zombie.c\
 	printf.c umalloc.c\
 	README dot-bochsrc *.pl toc.* runoff runoff1 runoff.list\

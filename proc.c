@@ -74,11 +74,21 @@ myproc(void)
 // Otherwise return 0.
 int sys_set_priority(void)
 {
-  int p;
-  argptr(0, (void *)&p, sizeof(p));
-  int old = myproc()->priority;
-  myproc()->priority = p;
-  cprintf("pid = %d priority = %d\n", myproc()->pid, myproc()->priority);
+  int p, pid;
+  argptr(0, (void *)&pid, sizeof(pid));
+  argptr(1, (void *)&p, sizeof(p));
+  int old = -1;
+  struct proc *pr;
+  for (pr = ptable.proc; pr < &ptable.proc[NPROC]; pr++)
+  {
+    if (pr->pid == pid)
+    {
+      old = pr->priority;
+      pr->priority = p;
+      break;
+    }
+  }
+  cprintf("pid = %d priority = %d\n", pr->pid, pr->priority);
   return old;
 }
 int sys_getpinfo(void)
@@ -123,13 +133,12 @@ found:
   {
     p->ticks[i] = 0;
   }
-#ifdef SCHEDULER
-#if SCHEDULER == PBS
+#ifdef PBS
   p->priority = 60;
-#elif SCHEDULER == MLFQ
+#endif
+#ifdef MLFQ
   p->curr_q = 0;
   p->remaining_quantum = 1;
-#endif
 #endif
   p->last_run = 0;
   p->previous_q_update = 0;
@@ -291,7 +300,7 @@ void exit(void)
     }
   }
   curproc->etime = ticks;
-  cprintf("pid %d exited ctime %d rtime %d etime %d\n", curproc->pid, curproc->ctime, curproc->rtime, curproc->etime);
+  cprintf("pid %d exited ctime %d rtime %d etime %d priority %d\n", curproc->pid, curproc->ctime, curproc->rtime, curproc->etime, curproc->priority);
   begin_op();
   iput(curproc->cwd);
   end_op();
@@ -384,6 +393,7 @@ int waitx(int *wtime, int *rtime)
       havekids = 1;
       if (p->state == ZOMBIE)
       {
+        argptr(0, (void *)&pid, sizeof(pid));
         // Found one.
         pid = p->pid;
         kfree(p->kstack);
@@ -435,7 +445,7 @@ void scheduler(void)
 
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
-#ifndef SCHEDULER
+#ifdef ROUND
 
     for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
     {
@@ -456,151 +466,109 @@ void scheduler(void)
       // It should have changed its p->state before coming back.
       c->proc = 0;
     }
-#elif SCHEDULER == PBS
+#endif
+#ifdef PBS
+    // cprintf("IS PBS");
     for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
     {
       if (p->state != RUNNABLE)
         continue;
       struct proc *i = ptable.proc;
-      struct proc *nextrun = p;
+      // struct proc *nextrun = p;
+      // if (nextrun->priority == 0)
+      //   nextrun->priority = 110;
+      int minpriority=110;
       for (; i < &ptable.proc[NPROC]; i++)
       {
-        if ((i->pid > 2) && (i->state == RUNNABLE))
+        if ((i->state == RUNNABLE))
         {
-          if ((i->priority <= nextrun->priority))
+          if ((i->priority < minpriority))
           {
-            nextrun = i;
-          }
-
-          if ((i->priority != 0) && (i->last_run != 0) && (ticks - i->recent_priority_change >= 20) && (ticks - i->last_run >= 100))
-          {
-            i->priority--;
-            i->recent_priority_change = ticks;
-            cprintf("Priority of %d Changed to %d\n", i->pid, i->priority);
+            // nextrun = i;
+            minpriority=i->priority;
           }
         }
       }
-      nextrun->num_run++;
-      nextrun->last_run = ticks;
-      p = nextrun;
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      c->proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
+      for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+      {
+        if ((p->state == RUNNABLE) && (p->priority == minpriority))
+        {
+          c->proc = p;
+          switchuvm(p);
+          p->state = RUNNING;
 
-      swtch(&(c->scheduler), p->context);
-      switchkvm();
+          swtch(&(c->scheduler), p->context);
+          switchkvm();
 
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      c->proc = 0;
+          // Process is done running for now.
+          // It should have changed its p->state before coming back.
+          c->proc = 0;
+        }
+      }
     }
-#elif SCHEDULER == MLFQ
-  
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      // cprintf("pta %d\n", p->pid);
-      if(p->state == RUNNABLE)
-        // goto loop;
-      {
-      int none=0,queue = 0;
-find:
-      for(int i=0; i < NPROC; i++) {
-        if((ptable.proc[i].curr_q!=0)&&(ptable.proc[i].state == RUNNABLE) && (ptable.proc[i].last_run != 0) && (ticks - ptable.proc[i].previous_q_update >= 200) && (ticks - ptable.proc[i].last_run >= 1000)) {
-            ptable.proc[i].curr_q--;
-            ptable.proc[i].previous_q_update = ticks;
-        }
-        if(ptable.proc[i].curr_q == queue && ptable.proc[i].state == RUNNABLE) {
-          p = &ptable.proc[i];
-          goto cont;
-        }
-      }
-      if(queue == 4) {
-        none++;
-      } else {
-        queue++;
-        goto find;
-      }
-cont:
-      if(p->state == RUNNABLE)
-      {
-      if(!none) {
-        p->last_run = ticks;
-        p->num_run++;
-        c->proc = p;
-        switchuvm(p);
-        p->state = RUNNING;
+#endif
+#ifdef MLFQ
 
-        swtch(&(c->scheduler), p->context);
-        switchkvm();
-      }
-
-      c->proc = 0;
-      }
-      }
-  }
-//     for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-//     {
-//       // cprintf("ptable.proc %p, p is %p\n", ptable.proc, p);
-//       // if (p->pid != 0)
-//       // {
-//       //   cprintf("CURR p %d\n", p->pid);
-//       //   cprintf("p is %p\n", p);
-//       // }
-//       if (p->state == RUNNABLE)
-//       {
-//         int none = 0, queue = 0;
-// find:
-//         int i = 0;
-//         for (;i < NPROC;i++)
-//         {
-//           if (ptable.proc[i].pid != 0)
-//             cprintf("IN p %d\n", ptable.proc[i].pid);
-//           if ((ptable.proc[i].curr_q != 0) && (ptable.proc[i].state == RUNNABLE) && (ptable.proc[i].last_run != 0) && (ticks - ptable.proc[i].previous_q_update >= 200) && (ticks - ptable.proc[i].last_run >= 1000))
-//           {
-//             ptable.proc[i].curr_q--;
-//             ptable.proc[i].previous_q_update = ticks;
-//           }
-//           if (ptable.proc[i].curr_q == queue && ptable.proc[i].state == RUNNABLE)
-//           {
-//             p = &ptable.proc[i];
-//             goto cont;
-//           }
-//         }
-//         if (queue == 4)
-//         {
-//           none = 1;
-//           goto cont;
-//         }
-//         else
-//         {
-//           queue++;
-//           goto find;
-//         }
-// cont:
-//         if (p->state == RUNNABLE)
-//         {
-//           if (!none)
-//           {
-//             p->last_run = ticks;
-//             p->num_run += 1;
-//             c->proc = p;
-//             switchuvm(p);
-//             p->state = RUNNING;
-//             swtch(&(c->scheduler), p->context);
-//             switchkvm();
-
-//             // Process is done running for now.
-//             // It should have changed its p->state before coming back.
-//           }
-//           c->proc = 0;
-//         }
-//       }
-//     }
-#elif SCHEDULER == FCFS
     for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
     {
+      // cprintf("pta %d\n", p->pid); 
+      if (p->state == RUNNABLE)
+      // goto loop;
+      {
+        int none = 0, queue = 0;
+      find:
+        for (int i = 0; i < NPROC; i++)
+        {
+          if ((ptable.proc[i].curr_q != 0) && (ptable.proc[i].state == RUNNABLE) && (ptable.proc[i].last_run != 0) && (ticks - ptable.proc[i].previous_q_update >= 16) && (ticks - ptable.proc[i].last_run >= 80 ))
+          {
+            ptable.proc[i].curr_q--;
+            ptable.proc[i].previous_q_update = ticks;
+          }
+          if (ptable.proc[i].curr_q == queue && ptable.proc[i].state == RUNNABLE)
+          {
+            p = &ptable.proc[i];
+            goto cont;
+          }
+        }
+        if (queue == 4)
+        {
+          none++;
+        }
+        else
+        {
+          queue++;
+          goto find;
+        }
+      cont:
+        if (p->state == RUNNABLE)
+        {
+          if (!none)
+          {
+            for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+            {
+              if ((p->curr_q == queue)&& (p->state==RUNNABLE))
+              {
+                p->last_run = ticks;
+                p->num_run++;
+                c->proc = p;
+                switchuvm(p);
+                p->state = RUNNING;
+
+                swtch(&(c->scheduler), p->context);
+                switchkvm();
+              }
+              c->proc = 0;
+            }
+          }
+        }
+      }
+    }
+
+#endif
+#ifdef FCFS
+    for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    {
+      // cprintf("hi\n");
       if (p->state != RUNNABLE)
         continue;
       struct proc *i = ptable.proc;
@@ -629,7 +597,6 @@ cont:
       // It should have changed its p->state before coming back.
       c->proc = 0;
     }
-
 #endif
     release(&ptable.lock);
   }
@@ -801,7 +768,7 @@ void procdump(void)
       state = states[p->state];
     else
       state = "???";
-    cprintf("%d %s %s", p->pid, state, p->name);
+    cprintf("\n%d\t%s\t%s\t%d", p->pid, state, p->name,p->priority);
     if (p->state == SLEEPING)
     {
       getcallerpcs((uint *)p->context->ebp + 2, pc);

@@ -120,7 +120,7 @@ trap(struct trapframe *tf)
   // Check if the process has been killed since we yielded
   if(myproc() && myproc()->killed && (tf->cs&3) == DPL_USER)
     exit();
-  #if !defined ( SCHEDULER ) || SCHEDULER==PBS
+  #if defined(ROUND) || defined(PBS)
     struct proc *p=myproc();
     if(p&&p->state==RUNNING&&tf->trapno==T_IRQ0+IRQ_TIMER)
     {
@@ -130,7 +130,8 @@ trap(struct trapframe *tf)
     {
       exit();
     }
-  #elif SCHEDULER ==MLFQ
+  #endif
+  #ifdef MLFQ
     struct proc *p=myproc();
     if(p&&p->state==RUNNING&&tf->trapno==T_IRQ0+IRQ_TIMER)
     {
