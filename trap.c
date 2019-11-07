@@ -144,23 +144,23 @@ trap(struct trapframe *tf)
         }
         if(p->curr_q==0)
         {
-          p->curr_q=1;
+          p->curr_q=10;
         }
         else if(p->curr_q==1)
         {
-          p->remaining_quantum=2;
+          p->remaining_quantum=20;
         }
         else if(p->curr_q==2)
         {
-          p->remaining_quantum=4;
+          p->remaining_quantum=40;
         }
         else if(p->curr_q==3)
         {
-          p->remaining_quantum=8;
+          p->remaining_quantum=80;
         }
         else if(p->curr_q==4)
         {
-          p->remaining_quantum=16;
+          p->remaining_quantum=160;
         }
         yield();
       }

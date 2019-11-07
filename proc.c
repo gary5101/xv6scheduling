@@ -7,6 +7,7 @@
 #include "proc.h"
 #include "spinlock.h"
 #include "proc_stat.h"
+// #include "user.h"
 struct
 {
   struct spinlock lock;
@@ -93,20 +94,29 @@ int sys_set_priority(void)
 }
 int sys_getpinfo(void)
 {
+  int pid;
   struct proc_stat *p;
-  if ((argptr(0, (void *)&p, sizeof(p)) < 0) || (myproc() == 0))
+  if ((argptr(0, (void *)&pid, sizeof(pid)) < 0) || (argptr(1, (void *)&p, sizeof(p)) < 0))
     return 0;
-  p->pid = myproc()->pid;
-  p->runtime = myproc()->rtime;
-  p->num_run = myproc()->num_run;
-  p->current_queue = myproc()->curr_q;
-  int i = 5;
-  while (i--)
+  struct proc *pr;
+  for (pr = ptable.proc; pr < &ptable.proc[NPROC]; pr++)
   {
-    p->ticks[i] = myproc()->ticks[i];
+    if (pr->pid == pid)
+    {
+      p->pid=pr->pid;
+      p->runtime = pr->rtime;
+      p->num_run = pr->num_run;
+      p->current_queue = pr->curr_q;
+      int i = 5;
+      while (i--)
+      {
+        p->ticks[i] = pr->ticks[i];
+      }
+    }
   }
-  return 1;
+      return 1;
 }
+
 static struct proc *
 allocproc(void)
 {
@@ -138,7 +148,7 @@ found:
 #endif
 #ifdef MLFQ
   p->curr_q = 0;
-  p->remaining_quantum = 1;
+  p->remaining_quantum = 10;
 #endif
   p->last_run = 0;
   p->previous_q_update = 0;
@@ -477,7 +487,7 @@ void scheduler(void)
       // struct proc *nextrun = p;
       // if (nextrun->priority == 0)
       //   nextrun->priority = 110;
-      int minpriority=110;
+      int minpriority = 110;
       for (; i < &ptable.proc[NPROC]; i++)
       {
         if ((i->state == RUNNABLE))
@@ -485,7 +495,7 @@ void scheduler(void)
           if ((i->priority < minpriority))
           {
             // nextrun = i;
-            minpriority=i->priority;
+            minpriority = i->priority;
           }
         }
       }
@@ -511,7 +521,7 @@ void scheduler(void)
 
     for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
     {
-      // cprintf("pta %d\n", p->pid); 
+      // cprintf("pta %d\n", p->pid);
       if (p->state == RUNNABLE)
       // goto loop;
       {
@@ -519,7 +529,7 @@ void scheduler(void)
       find:
         for (int i = 0; i < NPROC; i++)
         {
-          if ((ptable.proc[i].curr_q != 0) && (ptable.proc[i].state == RUNNABLE) && (ptable.proc[i].last_run != 0) && (ticks - ptable.proc[i].previous_q_update >= 16) && (ticks - ptable.proc[i].last_run >= 80 ))
+          if ((ptable.proc[i].curr_q != 0) && (ptable.proc[i].state == RUNNABLE) && (ptable.proc[i].last_run != 0) && (ticks - ptable.proc[i].previous_q_update >= 100) && (ticks - ptable.proc[i].last_run >= 500))
           {
             ptable.proc[i].curr_q--;
             ptable.proc[i].previous_q_update = ticks;
@@ -544,9 +554,18 @@ void scheduler(void)
         {
           if (!none)
           {
+            int flag = 0;
             for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
             {
-              if ((p->curr_q == queue)&& (p->state==RUNNABLE))
+              for (struct proc *pr = ptable.proc; pr < &ptable.proc[NPROC]; pr++)
+              {
+                if ((pr->state == RUNNING) && (pr->curr_q < queue))
+                {
+                  flag = 1;
+                }
+              }
+
+              if ((p->curr_q == queue) && (p->state == RUNNABLE) && (!flag))
               {
                 p->last_run = ticks;
                 p->num_run++;
@@ -768,7 +787,7 @@ void procdump(void)
       state = states[p->state];
     else
       state = "???";
-    cprintf("\n%d\t%s\t%s\t%d", p->pid, state, p->name,p->priority);
+    cprintf("\n%d\t%s\t%s\t%d\t%d", p->pid, state, p->name, p->priority, p->curr_q);
     if (p->state == SLEEPING)
     {
       getcallerpcs((uint *)p->context->ebp + 2, pc);
