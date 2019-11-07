@@ -1,5 +1,52 @@
 fcfs
 start 447 end 3863
+total 3416
+1.21048
+1.14862
+
 
 round-robin
 start 505 end 3479
+total 2974
+1.05386
+
+
+mlfq
+start 406 end 3228
+total 2822 
+
+
+
+cpu 1
+fcfs
+start 649 end 3430
+total 2781
+
+
+round-robin
+start 577 end 3380
+total 2803
+
+
+mlfq
+start 499 end 3360
+total 2861
+
+
+
+6577
+
+
+robin
+start 862 end 6733
+total 5817
+
+
+mlfq
+start 336 end 6120
+total 5784
+
+
+fcfs
+start 291 end 6116
+total 5725

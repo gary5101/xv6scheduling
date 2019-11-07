@@ -554,18 +554,9 @@ void scheduler(void)
         {
           if (!none)
           {
-            int flag = 0;
             for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
             {
-              for (struct proc *pr = ptable.proc; pr < &ptable.proc[NPROC]; pr++)
-              {
-                if ((pr->state == RUNNING) && (pr->curr_q < queue))
-                {
-                  flag = 1;
-                }
-              }
-
-              if ((p->curr_q == queue) && (p->state == RUNNABLE) && (!flag))
+              if ((p->curr_q == queue) && (p->state == RUNNABLE))
               {
                 p->last_run = ticks;
                 p->num_run++;
